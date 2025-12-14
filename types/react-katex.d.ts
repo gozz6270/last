@@ -13,3 +13,6 @@ declare module "react-katex" {
     renderError?: (error: Error) => React.ReactNode;
   }>;
 }
+
+
+

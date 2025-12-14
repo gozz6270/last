@@ -7,11 +7,12 @@ export default function MathText({ text }: { text: string }) {
   // $...$ 는 인라인 수식, $$...$$ 는 블록 수식
 
   // 1) 모델이 "\\n" 또는 "\n" 같은 문자 그대로 보내는 경우가 있어, 실제 줄바꿈으로 변환
+  // 주의: LaTeX 명령어(\times, \text 등)를 보호하기 위해 단어 경계를 확인
   let processedText = (text ?? "")
-    // 먼저 이스케이프된 \n을 실제 줄바꿈으로
-    .replace(/\\n/g, "\n")
-    .replace(/\\r/g, "\r")
-    .replace(/\\t/g, "\t");
+    // \\n을 줄바꿈으로 변환 (단, \\nolimits 같은 LaTeX 명령어가 아닌 경우만)
+    .replace(/\\n(?![a-zA-Z])/g, "\n")
+    // \\r 변환
+    .replace(/\\r(?![a-zA-Z])/g, "\r");
 
   // 2) 먼저 \(...\) 와 \[...\] 를 $...$ 와 $$...$$ 로 변환
   processedText = processedText
@@ -54,12 +55,24 @@ export default function MathText({ text }: { text: string }) {
   const parts = processedText.split(/(\$\$[\s\S]+?\$\$|\$[\s\S]+?\$)/g);
 
   return (
-    <span style={{ display: "inline-block", maxWidth: "100%" }}>
+    <span
+      style={{
+        display: "inline",
+        maxWidth: "100%",
+        wordBreak: "break-word",
+        overflowWrap: "break-word",
+      }}
+      className="math-text-wrapper"
+    >
       {parts.map((part, i) => {
         if (part.startsWith("$$") && part.endsWith("$$")) {
           return <BlockMath key={i} math={part.slice(2, -2)} />;
         } else if (part.startsWith("$") && part.endsWith("$")) {
-          return <InlineMath key={i} math={part.slice(1, -1)} />;
+          return (
+            <span key={i} style={{ display: "inline-block", maxWidth: "100%" }}>
+              <InlineMath math={part.slice(1, -1)} />
+            </span>
+          );
         } else {
           return (
             <span key={i} style={{ whiteSpace: "pre-wrap" }}>
@@ -71,3 +84,6 @@ export default function MathText({ text }: { text: string }) {
     </span>
   );
 }
+
+
+

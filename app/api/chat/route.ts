@@ -29,11 +29,16 @@ export async function POST(req: Request) {
 
     console.log("📤 Sending to OpenAI:", messages.length, "messages");
 
+    // JSON 모드 강제 여부 결정 (시스템 메시지가 있으면 문제 풀이 모드)
+    const hasSystemMessage = messages.some((m: any) => m.role === "system");
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: messages,
       temperature: 0.7,
       max_tokens: 1000,
+      // 문제 풀이 모드일 때만 JSON 모드 강제
+      ...(hasSystemMessage && { response_format: { type: "json_object" } }),
     });
 
     const content = response.choices[0].message.content;
@@ -71,3 +76,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

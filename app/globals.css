@@ -19,3 +19,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* KaTeX 수식 줄바꿈 허용 */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.katex {
+  word-break: break-word;
+  white-space: normal;
+}
+
+.katex .base {
+  display: inline;
+}
+
+/* MathText 래퍼 스타일 */
+.math-text-wrapper {
+  word-break: break-word;
+  overflow-wrap: break-word;
+}

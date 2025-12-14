@@ -9,10 +9,15 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@langchain/community": "^0.3.58",
+    "@langchain/core": "^0.3.79",
+    "@langchain/openai": "^0.3.17",
     "@supabase/supabase-js": "^2.87.1",
     "katex": "^0.16.27",
+    "langchain": "^0.3.36",
     "next": "16.0.10",
-    "openai": "^6.10.0",
+    "openai": "^4.62.1",
+    "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^4.4.168",
     "react": "19.2.1",
     "react-dom": "19.2.1",

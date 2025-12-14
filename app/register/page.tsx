@@ -158,28 +158,49 @@ export default function RegisterPage() {
   }, [selectedQuestionIndex, isNewQuestion, questions]);
 
   const fetchChapters = async () => {
-    const { data, error } = await supabase
-      .from("chapters")
-      .select("*")
-      .order("order", { ascending: true });
-    if (!error) setChapters(data || []);
+    try {
+      const { data, error } = await supabase
+        .from("chapters")
+        .select("*")
+        .order("order", { ascending: true });
+      if (error) {
+        console.error("chapters 로드 실패:", error);
+        return;
+      }
+      setChapters(data || []);
+    } catch (e) {
+      console.error("chapters 로드 중 예외:", e);
+    }
   };
 
   const fetchSections = async () => {
-    const { data, error } = await supabase
-      .from("sections")
-      .select("*")
-      .order("order", { ascending: true });
-    if (!error) setSections(data || []);
+    try {
+      const { data, error } = await supabase
+        .from("sections")
+        .select("*")
+        .order("order", { ascending: true });
+      if (error) {
+        console.error("sections 로드 실패:", error);
+        return;
+      }
+      setSections(data || []);
+    } catch (e) {
+      console.error("sections 로드 중 예외:", e);
+    }
   };
 
   const fetchQuestions = async (sectionId: string) => {
-    const { data, error } = await supabase
-      .from("questions")
-      .select("*")
-      .eq("section_id", sectionId)
-      .order("order", { ascending: true });
-    if (!error) {
+    try {
+      const { data, error } = await supabase
+        .from("questions")
+        .select("*")
+        .eq("section_id", sectionId)
+        .order("order", { ascending: true });
+      if (error) {
+        console.error("questions 로드 실패:", error);
+        return;
+      }
+
       setQuestions(data || []);
       // 문제가 0개면 신규 등록 모드
       if (data && data.length === 0) {
@@ -188,6 +209,8 @@ export default function RegisterPage() {
         setSelectedQuestionIndex(0);
         setIsNewQuestion(false);
       }
+    } catch (e) {
+      console.error("questions 로드 중 예외:", e);
     }
   };
 
@@ -1143,3 +1166,4 @@ export default function RegisterPage() {
     </div>
   );
 }
+
