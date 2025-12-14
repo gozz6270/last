@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
+import "katex/dist/katex.min.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,9 +27,37 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen overflow-hidden`}
       >
-        {children}
+        <div className="flex h-full min-h-0 flex-col">
+          <nav className="bg-white border-b border-gray-200 shadow-sm flex-shrink-0">
+            <div className="px-4 sm:px-6 lg:px-8">
+              <div className="flex h-16">
+                <div className="flex space-x-8">
+                  <Link
+                    href="/solve"
+                    className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300"
+                  >
+                    문제 풀기
+                  </Link>
+                  <Link
+                    href="/register"
+                    className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300"
+                  >
+                    문제 등록
+                  </Link>
+                  <Link
+                    href="/pdf"
+                    className="inline-flex items-center px-1 pt-1 text-sm font-medium text-gray-900 hover:text-gray-700 border-b-2 border-transparent hover:border-gray-300"
+                  >
+                    PDF 보기
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </nav>
+          <main className="flex-1 min-h-0 overflow-hidden">{children}</main>
+        </div>
       </body>
     </html>
   );

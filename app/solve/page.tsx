@@ -28,7 +28,7 @@ interface Question {
   order: number;
 }
 
-export default function HomePage() {
+export default function SolvePage() {
   // 데이터
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
