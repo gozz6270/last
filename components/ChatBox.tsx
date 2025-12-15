@@ -58,6 +58,8 @@ export default function ChatBox({
   const [sessionTotalSteps, setSessionTotalSteps] = useState<number | null>(
     null
   );
+  const MAX_HISTORY = 20;
+  const limitMessages = <T,>(arr: T[]) => arr.slice(-MAX_HISTORY);
   const [maxStepSeen, setMaxStepSeen] = useState<number>(0);
   // state는 비동기 업데이트라 totalSteps가 순간적으로 튈 수 있어 ref를 '진짜 기준'으로 사용
   const sessionTotalStepsRef = useRef<number | null>(null);
@@ -297,10 +299,12 @@ export default function ChatBox({
   const startTutoring = async (initialMessages: Message[]) => {
     setLoading(true);
     try {
-      const apiMessages = initialMessages.map((m) => ({
-        role: m.role,
-        content: m.apiContent ?? m.content,
-      }));
+      const apiMessages = limitMessages(
+        initialMessages.map((m) => ({
+          role: m.role,
+          content: m.apiContent ?? m.content,
+        }))
+      );
       const requestBody = isPdfChat
         ? { messages: apiMessages, folderId, useGptKnowledge }
         : { messages: apiMessages, questionData };
@@ -401,7 +405,7 @@ export default function ChatBox({
     setLoading(true);
 
     try {
-      const apiMessages = newMessages.map((m) => ({
+      let apiMessages = newMessages.map((m) => ({
         role: m.role,
         content: m.apiContent ?? m.content,
       }));
@@ -418,6 +422,8 @@ export default function ChatBox({
             "[시스템 알림] 문제 풀이가 이미 완료되었습니다. 학생이 추가 질문을 하고 있습니다. 이 경우 type=text로만 답변하고, 절대 type=step이나 type=complete을 반환하지 마세요. 단계별 풀이는 더 이상 진행하지 않습니다.",
         });
       }
+
+      apiMessages = limitMessages(apiMessages);
 
       const requestBody = isPdfChat
         ? { messages: apiMessages, folderId, useGptKnowledge }
@@ -520,7 +526,7 @@ export default function ChatBox({
                 content: m.apiContent ?? m.content,
               }));
 
-              const fixMessages = [
+              const fixMessages = limitMessages([
                 ...latestApiMessages,
                 {
                   role: "user" as const,
@@ -532,7 +538,7 @@ export default function ChatBox({
                     `- type=step/type=complete는 절대 반환하지 마세요 (이미 UI에서 단계 처리를 진행합니다)\n` +
                     `- 방금 선택: ${optionCtx.selectedText}`,
                 },
-              ];
+              ]);
 
               const r = await fetch(apiEndpoint, {
                 method: "POST",
@@ -672,7 +678,7 @@ export default function ChatBox({
                     });
                   }
 
-                  const extraApiMessages = [
+                  const extraApiMessages = limitMessages([
                     ...latestApiMessages,
                     {
                       role: "user" as const,
@@ -682,7 +688,7 @@ export default function ChatBox({
                         `- totalSteps: ${total}\n` +
                         `중요: type=text 설명은 이미 보냈으므로, 이제 type=step(step=${nextStepNum}) 또는 type=complete만 JSON으로 반환하세요.`,
                     },
-                  ];
+                  ]);
 
                   const r = await fetch(apiEndpoint, {
                     method: "POST",
