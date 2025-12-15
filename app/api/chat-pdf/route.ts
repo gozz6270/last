@@ -14,6 +14,36 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+type Intent = "doc_lookup" | "chat_followup" | "general";
+
+function detectIntent(text: string): Intent {
+  const t = (text || "").toLowerCase();
+  const docHints = [
+    "문서",
+    "pdf",
+    "자료",
+    "근거",
+    "출처",
+    "파일",
+    "본문",
+    "내용에",
+    "어디에",
+  ];
+  const followupHints = [
+    "방금",
+    "아까",
+    "이어서",
+    "앞에서",
+    "말한 거",
+    "요약",
+    "정리",
+  ];
+
+  if (docHints.some((h) => t.includes(h))) return "doc_lookup";
+  if (followupHints.some((h) => t.includes(h))) return "chat_followup";
+  return "general";
+}
+
 export async function POST(req: Request) {
   try {
     const { messages, folderId, useGptKnowledge = false } = await req.json();
@@ -43,6 +73,8 @@ export async function POST(req: Request) {
     console.log("📝 PDF 채팅 질문:", userQuestion);
     console.log("📁 폴더 ID:", folderId);
     console.log("🧠 ChatGPT 지식 사용:", useGptKnowledge);
+    const intent = detectIntent(userQuestion);
+    console.log("🎯 의도 감지:", intent);
 
     // 1. 해당 폴더의 PDF ID들 가져오기
     const { data: pdfs, error: pdfsError } = await supabase
@@ -139,10 +171,14 @@ export async function POST(req: Request) {
 
     // 5. 검색된 청크를 컨텍스트로 합치기 + PDF 정보 매핑
     if (!filteredChunks || filteredChunks.length === 0) {
-      // 문서에 없지만 GPT 지식 허용 시: 일반 지식/대화 히스토리로 답변
-      if (useGptKnowledge) {
-        console.log("⚠️ 문서 컨텍스트 없음, GPT 지식으로 답변 시도");
-        const systemPromptFallback = `당신은 PDF 문서를 분석하는 AI 어시스턴트입니다. 현재 문서에서 관련 내용을 찾지 못했습니다. 그러나 직전 대화 히스토리와 일반 지식을 활용해 이어서 답변하세요.
+      // 문서에 없거나 매칭 안 됨: intent/옵션에 따라 히스토리/일반지식으로 응답
+      if (
+        useGptKnowledge ||
+        intent === "chat_followup" ||
+        intent === "general"
+      ) {
+        console.log("⚠️ 문서 컨텍스트 없음, 히스토리/지식 기반으로 답변 시도");
+        const systemPromptFallback = `당신은 PDF 문서를 분석하는 AI 어시스턴트입니다. 현재 문서에서 관련 내용을 찾지 못했습니다. 그러나 직전 대화 히스토리와 일반 지식을 활용해 이어서 답변하세요. (현재 인식된 의도: ${intent})
 
 규칙:
 1) 한국어로 답변.
@@ -206,7 +242,7 @@ export async function POST(req: Request) {
     // 6. GPT에게 컨텍스트 + 질문 전달
     console.log("💬 GPT 응답 생성 중...");
 
-    const systemPrompt = `당신은 PDF 문서를 분석하는 AI 어시스턴트입니다. 아래 문서 컨텍스트와 “지금까지의 대화 히스토리”를 모두 활용해 질문에 답변하세요. 직전 질의·응답을 적극 참조하여 이어서 답변해야 합니다.
+    const systemPrompt = `당신은 PDF 문서를 분석하는 AI 어시스턴트입니다. 아래 문서 컨텍스트와 “지금까지의 대화 히스토리”를 모두 활용해 질문에 답변하세요. 직전 질의·응답을 적극 참조하여 이어서 답변해야 합니다. (현재 인식된 의도: ${intent})
 
 규칙:
 1) 한국어로 답변.
