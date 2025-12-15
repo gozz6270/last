@@ -87,4 +87,3 @@ export default function MathText({ text }: { text: string }) {
 
 
 
-

@@ -53,6 +53,7 @@ export default function ChatBox({
   const [lastStepBeforeQuestion, setLastStepBeforeQuestion] =
     useState<StepResponse | null>(null);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [hideCompletionMessage, setHideCompletionMessage] = useState(false); // 완료 후 질문 시 완료 표시 숨김 플래그
   const [useGptKnowledge, setUseGptKnowledge] = useState(false); // ChatGPT 자체 지식 사용 토글
   const [sessionTotalSteps, setSessionTotalSteps] = useState<number | null>(
     null
@@ -166,7 +167,10 @@ export default function ChatBox({
     return parsed;
   };
 
-  const applyParsedResponsesToState = (parsedResponses: StepResponse[]) => {
+  const applyParsedResponsesToState = (
+    parsedResponses: StepResponse[],
+    ignoreCompletedCheck = false
+  ) => {
     if (!parsedResponses.length) {
       return;
     }
@@ -207,21 +211,35 @@ export default function ChatBox({
 
     const complete = parsedResponses.find((r) => r?.type === "complete");
     if (complete) {
-      console.log("✅ setIsCompleted(true) 호출:", complete);
-      setIsCompleted(true);
-      setCurrentStep(complete);
-      // 모델이 totalSteps를 크게 잡았다가 일찍 끝내는 경우가 있어, 완료 시점에 실제 진행된 step 수로 보정
-      if (maxStepSeenRef.current > 0) {
-        sessionTotalStepsRef.current = maxStepSeenRef.current;
-        setSessionTotalSteps(maxStepSeenRef.current);
+      // ignoreCompletedCheck가 true이면 문제 시작 시이므로 완료 처리
+      // ignoreCompletedCheck가 false이고 isCompleted가 true이면 완료 후 질문이므로 무시
+      if (ignoreCompletedCheck || !isCompleted) {
+        console.log("✅ setIsCompleted(true) 호출:", complete);
+        setIsCompleted(true);
+        setCurrentStep(complete);
+        // 모델이 totalSteps를 크게 잡았다가 일찍 끝내는 경우가 있어, 완료 시점에 실제 진행된 step 수로 보정
+        if (maxStepSeenRef.current > 0) {
+          sessionTotalStepsRef.current = maxStepSeenRef.current;
+          setSessionTotalSteps(maxStepSeenRef.current);
+        }
+        return;
+      } else {
+        // 완료 후 질문에서 type=complete이 반환된 경우 무시
+        console.log("⚠️ 완료 후 질문인데 type=complete이 반환됨 - 무시합니다");
+        return;
       }
-      return;
     }
 
     const lastStep = [...parsedResponses]
       .reverse()
       .find((r) => r?.type === "step");
     if (lastStep) {
+      // 완료 후에는 type=step을 처리하지 않음 (안전장치)
+      // 단, ignoreCompletedCheck가 true이면 무시 (문제 시작 시)
+      if (isCompleted && !ignoreCompletedCheck) {
+        console.log("⚠️ 완료 상태인데 type=step이 들어옴 - 무시합니다");
+        return;
+      }
       setIsCompleted(false);
       const stableTotal =
         sessionTotalStepsRef.current ??
@@ -241,14 +259,14 @@ export default function ChatBox({
   useEffect(() => {
     if (questionData && !isPdfChat) {
       console.log("Question changed, initializing...");
-      const systemPrompt = createSystemPrompt(questionData);
+      // 시스템 메시지는 서버에서 생성하므로 클라이언트에서는 user 메시지만 전송
       const initialMessages = [
-        { role: "system" as const, content: systemPrompt },
         { role: "user" as const, content: "문제 풀이를 시작해줘" },
       ];
       setMessages(initialMessages);
       setCurrentStep(null);
       setIsCompleted(false);
+      setHideCompletionMessage(false); // 새 문제 시작 시 완료 표시 숨김 플래그 초기화
       setInput("");
       setSessionTotalSteps(null);
       setMaxStepSeen(0);
@@ -264,6 +282,7 @@ export default function ChatBox({
       setMessages([]);
       setCurrentStep(null);
       setIsCompleted(false);
+      setHideCompletionMessage(false); // PDF 채팅 모드 초기화 시에도 플래그 초기화
       setInput("");
       setSessionTotalSteps(null);
       setMaxStepSeen(0);
@@ -275,101 +294,6 @@ export default function ChatBox({
     }
   }, [questionData?.question_text, isPdfChat]);
 
-  const createSystemPrompt = (data: ChatBoxProps["questionData"]) => {
-    if (!data) return "";
-
-    const choicesText =
-      data.choices && data.type === "multiple_choice"
-        ? "\n선지:\n" + data.choices.map((c, i) => i + 1 + ". " + c).join("\n")
-        : "";
-
-    const prompt =
-      "당신은 학생의 수학 문제 풀이를 단계별로 안내하는 AI 튜터입니다. 학생은 중학생입니다.\n\n" +
-      "⚠️ 절대 규칙: 반드시 JSON 형식으로만 응답하라! 일반 텍스트는 절대 금지!\n" +
-      '- 모든 응답은 {"type":"...", ...} 형태여야 함\n' +
-      "- JSON 외의 다른 텍스트를 추가하면 시스템 오류 발생\n\n" +
-      "현재 문제:\n" +
-      data.question_text +
-      "\n\n" +
-      "문제 유형: " +
-      (data.type === "multiple_choice" ? "객관식" : "단답형") +
-      choicesText +
-      "\n\n" +
-      "정답: " +
-      data.answer +
-      "\n" +
-      "해설: " +
-      (data.explanation ?? "") +
-      "\n\n" +
-      "핵심 요구사항(반드시 지켜라):\n" +
-      "1) 문제의 난이도와 풀이 과정에 맞게 단계 수를 결정하라:\n" +
-      "   - **기본값(디폴트): 3~4단계** (totalSteps = 3 또는 4) - 대부분의 문제는 이 범위로 설정\n" +
-      "   - 중간 난이도 문제(인수분해, 연립방정식 등): 3~4단계 (totalSteps = 3 또는 4)\n" +
-      "   - 복잡한 문제(여러 단계 변형 필요): 3~4단계 (totalSteps = 3 또는 4)\n" +
-      "   - **매우 간단한 문제만 예외**: 직접 계산, 단순 대입 등 정말 단순한 경우에만 1~2단계 (totalSteps = 1 또는 2)\n" +
-      "   - 예시(1~2단계가 적합한 경우): '2+3은?', 'x=5일 때 2x는?', '3의 제곱은?' 같은 초등 수준 문제\n" +
-      "   - 중요: 억지로 단계를 늘리지 마라! 실제 풀이에 필요한 단계만 구성하라.\n\n" +
-      "2) 각 단계는 **수학적 사고 과정**을 담아야 한다:\n" +
-      "   - 좋은 단계: 식 정리, 양변 조작, 인수분해, 방정식 풀이, 대입 검증\n" +
-      "   - 나쁜 단계: 단순히 정답 숫자 찍기, 의미 없는 선택\n" +
-      "   - 각 단계의 질문은 '어떻게 할까요?'가 아니라 '다음 식은?', '양변을 어떻게 정리?', '인수분해 결과는?' 등 구체적으로\n" +
-      "   - 예시 (나쁜 단계): '다음 단계에서 x의 값을 어떻게 구할까요?' → 선택지: x=0, x=1, x=2 ← 이건 그냥 찍기!\n" +
-      "   - 예시 (좋은 단계): '양변에서 25를 빼면?' → 선택지: $2x^2 = 0$, $2x^2 = 50$, ... ← 이건 실제 풀이 과정!\n\n" +
-      "3) options(선택지) 구성 규칙:\n" +
-      "   - 반드시 실제 수학적 작업의 결과를 담아라 (계산식, 변형된 식, 중간 결과)\n" +
-      '   - 좋은 예: ["$2x^2 = 0$", "$x^2 = 0$", "$(2x+1)(x-3)=0$"]\n' +
-      '   - 나쁜 예: ["$x = 0$", "$x = 1$", "$x = 2$"] ← 중간 과정 없이 최종 답만 나열 (찍기 유도)\n' +
-      "   - 각 선택지는 '이 단계에서 할 수 있는 수학적 작업의 결과'여야 함\n" +
-      "   - 최종 답은 마지막 단계에서만 선택지로 제시\n" +
-      '   - 나쁜 예: ["인수분해를 시도한다", "근의 공식을 사용한다"]\n' +
-      "   - **정답 선택지는 정확히 1개만 포함!** 나머지는 명백한 오답이어야 함\n" +
-      "   - 오답 선택지는 흔한 실수(부호 오류, 계산 실수, 잘못된 공식 적용 등)를 반영\n" +
-      "   - 중요: 당신이 생성한 선택지 중 어느 것이 정답인지 정확히 기억하라!\n" +
-      "   - 학생이 선택했을 때, 당신이 만든 선택지와 정확히 비교해서 정답/오답을 판단하라\n" +
-      "   - 수학적으로 동치인 표현은 모두 정답으로 인정 (예: $(2x+1)(x-3)=0$, $2x^2-5x-3=0$ 둘 다 인수분해 단계에서 정답일 수 있음)\n" +
-      "   - 하지만 명백히 틀린 계산(예: $4^2=8$, $2+2=5$)은 반드시 오답 처리\n" +
-      "   - options는 3~5개, 마지막은 항상 '이 단계 건너뛰기'\n\n" +
-      "4) 학생이 정답 선택지를 고르면:\n" +
-      "   - 왜 정답인지 수식/계산 과정 포함 2-3문장 설명\n" +
-      "   - 칭찬 후 즉시 다음 단계(step+1) 또는 완료(type=complete)로 진행\n\n" +
-      "5) 학생의 선택이 '오답'이면:\n" +
-      "   - 어디가 틀렸는지 수식/계산 과정 포함 3-4문장 설명\n" +
-      "   - [첫 오답]: 힌트만 제공 (정답 선택지 알려주지 마라!) + 같은 단계 다시 제시\n" +
-      "   - [두번째 오답]: 정답 선택지 명확히 알려주고 + 상세 설명 + 다음 단계로 진행\n\n" +
-      "6) 임의 질문: type=text로 답변 후 현재 단계 다시 제시\n" +
-      "7) 완료 후 질문: type=text로만 답변\n\n" +
-      "중요한 출력 규칙:\n" +
-      "- 학생이 선택지를 클릭한 경우:\n" +
-      "  1) 반드시 type=text로 상세 피드백을 먼저 반환 (정답/오답/건너뛰기 모두)\n" +
-      "  2) 그 다음 type=step (다음 단계) 또는 type=complete (완료) 반환\n" +
-      "- 정답 선택: step 증가 또는 complete\n" +
-      "- 첫 오답: 같은 step 유지 (힌트만)\n" +
-      "- 두번째 오답: 정답 공개 후 step 증가\n" +
-      "- 마지막 단계(step === totalSteps) 정답 시: type=complete\n" +
-      "- 건너뛰기: 무조건 다음 단계로 진행\n\n" +
-      "JSON 형식 규칙 (절대 어기지 마라!):\n" +
-      "⚠️ 모든 응답은 단일 JSON 객체로 감싸서 반환!\n" +
-      '- 형식: {"responses": [{...}, {...}]}\n' +
-      "- responses 배열 안에 type=text, type=step, type=complete 등을 담아라\n" +
-      "- 올바른 예:\n" +
-      '  {"responses":[{"type":"text","content":"잘했어요!"},{"type":"step","step":2,"totalSteps":3,"question":"...","options":[...],"correctIndex":0}]}\n' +
-      "- 틀린 예: 여러 개의 JSON을 연속으로 나열 (JSON 모드 오류)\n" +
-      '  {"type":"text",...}\\n{"type":"step",...} ← 이렇게 하면 안 됨!\n' +
-      "- 수식은 content 안에 $...$ 또는 $$...$$로 감싸기\n" +
-      "- LaTeX 백슬래시 이스케이프: \\\\times, \\\\frac, \\\\pm\n\n" +
-      "응답 예시:\n" +
-      '{"responses":[{"type":"step","step":1,"totalSteps":2,"question":"방정식을 어떻게 풀까요?","options":["$(2x+1)(x-3)=0$","$x^2-2x-3=0$","이 단계 건너뛰기"],"correctIndex":0}]}\n' +
-      '{"responses":[{"type":"text","content":"잘했어요! 인수분해가 정확합니다."},{"type":"complete","content":"축하합니다!"}]}\n\n' +
-      "중요:\n" +
-      "- type=step을 반환할 때 반드시 correctIndex 포함\n" +
-      "- 자유 질문에도 responses 배열 안에 담아라\n" +
-      '- 단일 응답이라도 배열로 감싸라: {"responses":[{...}]}\n\n' +
-      "시작:\n" +
-      '- "문제 풀이를 시작해줘" → step=1 제시\n';
-
-    return prompt;
-  };
-
   const startTutoring = async (initialMessages: Message[]) => {
     setLoading(true);
     try {
@@ -379,7 +303,7 @@ export default function ChatBox({
       }));
       const requestBody = isPdfChat
         ? { messages: apiMessages, folderId, useGptKnowledge }
-        : { messages: apiMessages };
+        : { messages: apiMessages, questionData };
 
       const response = await fetch(apiEndpoint, {
         method: "POST",
@@ -428,11 +352,13 @@ export default function ChatBox({
         }
 
         // 2. step/complete 상태 업데이트
+        // startTutoring은 문제 변경 시에만 호출되므로, 완료 상태 체크를 무시
         const stepResponses = parsedResponses.filter(
           (r) => r?.type === "step" || r?.type === "complete"
         );
         if (stepResponses.length > 0) {
-          applyParsedResponsesToState(stepResponses);
+          // 문제 시작 시에는 완료 상태 체크를 무시하고 강제로 처리
+          applyParsedResponsesToState(stepResponses, true);
         }
       }
     } catch (error: any) {
@@ -479,9 +405,23 @@ export default function ChatBox({
         role: m.role,
         content: m.apiContent ?? m.content,
       }));
+
+      // 완료 후 질문인 경우 AI에게 명시적으로 알림 및 완료 메시지 즉시 숨김
+      if (!isPdfChat && isCompleted && !meta?.fromOption) {
+        // 완료 메시지를 즉시 숨김
+        setCurrentStep(null);
+        setHideCompletionMessage(true);
+
+        apiMessages.push({
+          role: "system" as const,
+          content:
+            "[시스템 알림] 문제 풀이가 이미 완료되었습니다. 학생이 추가 질문을 하고 있습니다. 이 경우 type=text로만 답변하고, 절대 type=step이나 type=complete을 반환하지 마세요. 단계별 풀이는 더 이상 진행하지 않습니다.",
+        });
+      }
+
       const requestBody = isPdfChat
         ? { messages: apiMessages, folderId, useGptKnowledge }
-        : { messages: apiMessages };
+        : { messages: apiMessages, questionData };
 
       const response = await fetch(apiEndpoint, {
         method: "POST",
@@ -513,6 +453,22 @@ export default function ChatBox({
         ];
         setMessages((prev) => [...prev, ...assistantMessages]);
       } else {
+        // 완료 후 질문인 경우 일반 텍스트로 처리 (JSON 파싱 안 함)
+        if (isCompleted && !meta?.fromOption) {
+          console.log("✅ 완료 후 질문 응답 - 일반 텍스트로 처리");
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant" as const,
+              content: assistantMessage,
+            },
+          ]);
+          setCurrentStep(null);
+          setHideCompletionMessage(true);
+          setLoading(false);
+          return;
+        }
+
         // 문제 풀이 모드: JSON 파싱
         const parsedResponses = parseJsonResponses(assistantMessage);
         console.log("📊 Parsed responses:", parsedResponses);
@@ -581,7 +537,7 @@ export default function ChatBox({
               const r = await fetch(apiEndpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: fixMessages }),
+                body: JSON.stringify({ messages: fixMessages, questionData }),
               });
               if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
               const d = await r.json();
@@ -612,8 +568,28 @@ export default function ChatBox({
         }
 
         // 2) step/complete 상태 업데이트 (텍스트를 먼저 표시한 뒤 단계 반영)
+        // 완료 후에는 type=step과 type=complete 모두 무시하고 type=text만 처리
         if (stepResponses.length > 0) {
-          applyParsedResponsesToState(stepResponses);
+          if (isCompleted && !meta?.fromOption) {
+            // 완료 후 일반 질문인 경우, type=step과 type=complete 모두 무시
+            // 완료 표시를 숨기기 위해 currentStep을 null로 설정하고 영구적으로 숨김
+            console.log(
+              "⚠️ 완료 후 질문인데 type=step/complete이 반환됨 - 무시하고 완료 표시 숨김"
+            );
+            setCurrentStep(null);
+            setHideCompletionMessage(true); // 완료 표시를 영구적으로 숨김
+            // isCompleted는 true로 유지 (문제 풀이 상태는 보존)
+          } else {
+            // 정상적인 경우 (미완료 상태 또는 선택지 응답)
+            applyParsedResponsesToState(stepResponses);
+          }
+        } else if (isCompleted && !meta?.fromOption && combinedText) {
+          // 완료 후 자유 질문인데 step/complete 응답이 없는 경우 (type=text만 반환)
+          // 완료 표시를 숨기기 위해 currentStep을 null로 설정하고 영구적으로 숨김
+          console.log("✅ 완료 후 자유 질문 응답 - 완료 표시 숨김");
+          setCurrentStep(null);
+          setHideCompletionMessage(true); // 완료 표시를 영구적으로 숨김
+          // isCompleted는 true로 유지 (문제 풀이 상태는 보존)
         }
 
         // 3) 오답 카운터 관리
@@ -711,7 +687,10 @@ export default function ChatBox({
                   const r = await fetch(apiEndpoint, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ messages: extraApiMessages }),
+                    body: JSON.stringify({
+                      messages: extraApiMessages,
+                      questionData,
+                    }),
                   });
 
                   if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
@@ -993,6 +972,7 @@ export default function ChatBox({
         {!isPdfChat &&
           currentStep &&
           currentStep.type === "complete" &&
+          !hideCompletionMessage &&
           !loading && (
             <div className="bg-green-50 border-2 border-green-300 p-4 rounded-lg shadow-md">
               <div className="text-green-700 font-bold mb-2">🎉 완료!</div>
